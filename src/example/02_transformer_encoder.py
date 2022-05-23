@@ -361,7 +361,8 @@ def cli_main():
     # ------------
     # testing
     # ------------
-    result = trainer.test(model, test_dataloaders=dm.test_dataloader())
+    # result = trainer.test(model, test_dataloaders=dm.test_dataloader())
+    result = trainer.test(model, datamodule=dm)
     print(result)
 
     # {'test_acc': 0.9998000264167786, 'test_loss': 0.0011931280605494976}
