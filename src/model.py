@@ -8,32 +8,22 @@ from torchmetrics import functional as FM
 from gene_default_dataset import GeneRNADataModule
 from attention import TransformerEncoderLayer
 
+from argparse import ArgumentParser
 
-gn_data_module = GeneRNADataModule(batch_size=32, train_ratio=0.8)
-miRNA_vec, Gene_vec, label = iter(gn_data_module.train_dataloader()).__next__()
-
-print(gn_data_module)
-
-d_model = 256
-num_heads=8
-encoder = TransformerEncoderLayer( d_model,
-                                    num_heads,
-                                    dim_feedforward=d_model*4,
-                                    # by convention
-                                    dropout=0.1)
-inputs = torch.cat((miRNA_vec, Gene_vec), axis=-1)
-
-wq = nn.Linear(d_model, d_model, bias=use_bias)
-
-encoder(x=inputs, mask=None)
+def data_preprocessing(miRNA_vec, Gene_vec, n_split):
+    input_vec = torch.cat((miRNA_vec, Gene_vec), axis=-1)
+    input_vec = input_vec.view(-1, n_split, input_vec.size(-1) // n_split)
+    return input_vec
 
 
 class MyModel(pl.LightningModule):
     def __init__(self,
                  d_model,  # dim. in attemtion mechanism
                  num_heads,  # number of heads
+                 learning_rate,
+                 n_split
                  ):
-        super.__init__()
+        super(MyModel, self).__init__()
         self.save_hyperparameters()
 
         self.encoder = TransformerEncoderLayer( self.hparams.d_model,
@@ -45,18 +35,18 @@ class MyModel(pl.LightningModule):
 
 
         # [to output]
-        self.to_output = nn.Linear(self.hparams.d_model, self.hparams.output_vocab_size)
+        self.to_output = nn.Linear(self.hparams.d_model, 1)
         # D -> a single number
 
         # loss
         # self.criterion = nn.CrossEntropyLoss()
         self.criterion = nn.BCEWithLogitsLoss()
 
-    def forward(self, seq_ids, weight):
+    def forward(self, miRNA_vec, Gene_vec):
         # INPUT EMBEDDING
         # [ Digit Character Embedding ]
         # seq_ids : [B, max_seq_len]
-        seq_embs = self.input_emb(seq_ids.long())  # [B, max_seq_len, d_model]
+        # seq_embs = self.input_emb(seq_ids.long())  # [B, max_seq_len, d_model]
 
         # ENCODING BY Transformer-Encoder
         # [mask shaping]
@@ -64,8 +54,9 @@ class MyModel(pl.LightningModule):
         #   mask always applied to the last dimension explicitly.
         #   so, we need to prepare good shape of mask
         #   to prepare [B, dummy_for_heads, dummy_for_query, dim_for_key_dimension]
-        mask = weight[:, None, None, :]  # [B, 1, 1, max_seq_len]
-        seq_encs, attention_scores = self.encoder(seq_embs, mask)  # [B, max_seq_len, d_model]
+        # mask = weight[:, None, None, :]  # [B, 1, 1, max_seq_len]
+        input_vec = data_preprocessing(miRNA_vec, Gene_vec, self.hparams.n_split)
+        seq_encs, attention_scores = self.encoder(input_vec, mask=None)  # [B, max_seq_len, d_model]
 
         # seq_encs         : [B, max_seq_len, d_model]
         # attention_scores : [B, max_seq_len_query, max_seq_len_key]
@@ -79,23 +70,25 @@ class MyModel(pl.LightningModule):
         return logits, attention_scores
 
     def training_step(self, batch, batch_idx):
-        seq_ids, weights, y_id = batch
-        logits, _ = self(seq_ids, weights)  # [B, output_vocab_size]
-        loss = self.criterion(logits, y_id.long())
+        miRNA_vec, Gene_vec, label = batch
+
+        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        # loss = self.criterion(logits, y_id.long())
+        loss = self.criterion(logits, label)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         # all logs are automatically stored for tensorboard
         return loss
 
     def validation_step(self, batch, batch_idx):
-        seq_ids, weights, y_id = batch
+        miRNA_vec, Gene_vec, label = batch
 
-        logits, _ = self(seq_ids, weights)  # [B, output_vocab_size]
-        loss = self.criterion(logits, y_id.long())
+        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        loss = self.criterion(logits, label)
 
         ## get predicted result
         prob = F.softmax(logits, dim=-1)
-        acc = FM.accuracy(prob, y_id)
+        acc = FM.accuracy(prob, label.long())
         metrics = {'val_acc': acc, 'val_loss': loss}
         self.log_dict(metrics)
         return metrics
@@ -108,14 +101,14 @@ class MyModel(pl.LightningModule):
         self.log('validation_loss', val_loss, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
-        seq_ids, weights, y_id = batch
+        miRNA_vec, Gene_vec, label = batch
 
-        logits, _ = self(seq_ids, weights)  # [B, output_vocab_size]
-        loss = self.criterion(logits, y_id.long())
+        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        loss = self.criterion(logits, label)
 
         ## get predicted result
         prob = F.softmax(logits, dim=-1)
-        acc = FM.accuracy(prob, y_id)
+        acc = FM.accuracy(prob, label.long())
         metrics = {'test_acc': acc, 'test_loss': loss}
         self.log_dict(metrics, on_epoch=True)
         return metrics
@@ -139,18 +132,19 @@ def cli_main():
     # ------------
     parser = ArgumentParser()
     parser.add_argument('--batch_size', default=200, type=int)
-    parser.add_argument('--d_model', default=512, type=int)  # dim. for attention model
-    parser.add_argument('--num_heads', default=8, type=int)  # number of multi-heads
+    parser.add_argument('--d_model', default=32, type=int)  # dim. for attention model
+    parser.add_argument('--n_heads', default=8, type=int)  # number of multi-heads
+    parser.add_argument('--n_split', default=8, type=int)  # number of multi-heads
 
     parser = pl.Trainer.add_argparse_args(parser)
-    parser = TransformerEncoder_Number_Finder.add_model_specific_args(parser)
+    parser = MyModel.add_model_specific_args(parser)
     args = parser.parse_args()
 
     # ------------
     # data
     # ------------
-    dm = NumberDataModule.from_argparse_args(args)
-    iter(dm.train_dataloader()).next()  # <for testing
+    dm = GeneRNADataModule.from_argparse_args(args)
+    # iter(dm.train_dataloader()).next()  # <for testing
 
     # ------------
     # model
@@ -159,16 +153,17 @@ def cli_main():
         # dm.input_vocab_size,
         # dm.output_vocab_size,
         args.d_model,  # dim. in attemtion mechanism
-        args.num_heads,
-        dm.padding_idx,
-        args.learning_rate
+        args.n_heads,
+        # dm.padding_idx,
+        args.learning_rate,
+        args.n_split
     )
 
     # ------------
     # training
     # ------------
     trainer = pl.Trainer(
-        max_epochs=2,
+        max_epochs=100,
         # callbacks=[EarlyStopping(monitor='val_loss')],
         gpus=1  # if you have gpu -- set number, otherwise zero
     )
@@ -177,8 +172,8 @@ def cli_main():
     # ------------
     # testing
     # ------------
-    result = trainer.test(model, datamodule=dm)
-    print(result)
+    # result = trainer.test(model, datamodule=dm)
+    # print(result)
 
 
 
