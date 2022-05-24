@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from torchmetrics import functional as FM
 
 from gene_default_dataset import GeneRNADataModule
-from attention import TransformerEncoderLayer
+from attention import TransformerEncoderLayer, TransformerEncoder
 
 from argparse import ArgumentParser
 
@@ -18,6 +18,7 @@ def data_preprocessing(miRNA_vec, Gene_vec, n_split):
 
 class MyModel(pl.LightningModule):
     def __init__(self,
+                 n_layers,
                  d_model,  # dim. in attemtion mechanism
                  num_heads,  # number of heads
                  learning_rate,
@@ -26,11 +27,12 @@ class MyModel(pl.LightningModule):
         super(MyModel, self).__init__()
         self.save_hyperparameters()
 
-        self.encoder = TransformerEncoderLayer( self.hparams.d_model,
-                                                self.hparams.num_heads,
-                                                dim_feedforward=self.hparams.d_model*4,
-                                                # by convention
-                                                dropout=0.1
+        self.encoder = TransformerEncoder( self.hparams.n_layers,
+                                           self.hparams.d_model,
+                                            self.hparams.num_heads,
+                                            dim_feedforward=self.hparams.d_model*4,
+                                            # by convention
+                                            dropout=0.1
                                               )
 
 
@@ -72,10 +74,18 @@ class MyModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         miRNA_vec, Gene_vec, label = batch
 
-        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        logit, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
         # loss = self.criterion(logits, y_id.long())
-        loss = self.criterion(logits, label)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # preds = logits.argmax(-1)
+
+        loss = self.criterion(logit, label)
+        acc = FM.accuracy(logit, label.long(), threshold=0.5)
+        auc = FM.auroc(logit, label.long(), pos_label=1)
+        log_dict = {"train_loss": loss,
+                    "train_acc": acc,
+                    "train_auc": auc}
+        # self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log_dict(log_dict, on_epoch=True, prog_bar=True, logger=True)
 
         # all logs are automatically stored for tensorboard
         return loss
@@ -83,33 +93,48 @@ class MyModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         miRNA_vec, Gene_vec, label = batch
 
-        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
-        loss = self.criterion(logits, label)
+        logit, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        # loss = self.criterion(logit, label)
 
         ## get predicted result
-        prob = F.softmax(logits, dim=-1)
-        acc = FM.accuracy(prob, label.long())
-        metrics = {'val_acc': acc, 'val_loss': loss}
-        self.log_dict(metrics)
+        # prob = F.softmax(logits, dim=-1)
+        # acc = FM.accuracy(prob, label.long())
+        # auc = FM.auc(prob, label)
+        metrics = {'val_logit': logit,
+                   'val_label': label}
+        # self.log_dict(metrics)
         return metrics
 
-    def validation_step_end(self, val_step_outputs):
-        val_acc = val_step_outputs['val_acc'].cpu()
-        val_loss = val_step_outputs['val_loss'].cpu()
+    # def validation_step_end(self, metrics):
+    #     print(metrics["val_loss"].mean())
 
-        self.log('validation_acc', val_acc, prog_bar=True)
-        self.log('validation_loss', val_loss, prog_bar=True)
+    def validation_epoch_end(self, val_step_outputs):
+        val_logit = torch.cat([x['val_logit'] for x in val_step_outputs])
+        val_label = torch.cat([x['val_label'] for x in val_step_outputs])
+
+        loss = self.criterion(val_logit, val_label)
+        acc = FM.accuracy(val_logit, val_label.long(), threshold=0.5)
+        auc = FM.auroc(val_logit, val_label.long(), pos_label=1)
+
+        log_dict = {"val_loss": loss,
+                    "val_acc": acc,
+                    "val_auc": auc}
+        self.log_dict(log_dict, on_epoch=True, prog_bar=True, logger=True)
+
+
 
     def test_step(self, batch, batch_idx):
         miRNA_vec, Gene_vec, label = batch
 
-        logits, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
-        loss = self.criterion(logits, label)
+        logit, _ = self(miRNA_vec, Gene_vec)  # [B, output_vocab_size]
+        loss = self.criterion(logit, label)
 
         ## get predicted result
-        prob = F.softmax(logits, dim=-1)
-        acc = FM.accuracy(prob, label.long())
-        metrics = {'test_acc': acc, 'test_loss': loss}
+        # prob = F.softmax(logits, dim=-1)
+        acc = FM.accuracy(logit, label.long(), threshold=0.5)
+        auc = FM.auroc(logit, label.long(), pos_label=1)
+
+        metrics = {'test_acc': acc, 'test_loss': loss, 'test_auc': auc}
         self.log_dict(metrics, on_epoch=True)
         return metrics
 
@@ -133,8 +158,9 @@ def cli_main():
     parser = ArgumentParser()
     parser.add_argument('--batch_size', default=200, type=int)
     parser.add_argument('--d_model', default=32, type=int)  # dim. for attention model
-    parser.add_argument('--n_heads', default=8, type=int)  # number of multi-heads
-    parser.add_argument('--n_split', default=8, type=int)  # number of multi-heads
+    parser.add_argument('--n_heads', default=4, type=int)  # number of multi-heads
+    parser.add_argument('--n_split', default=8, type=int)  # number of data seq
+    parser.add_argument('--n_layers', default=8, type=int)  # number of encoder layer
 
     parser = pl.Trainer.add_argparse_args(parser)
     parser = MyModel.add_model_specific_args(parser)
@@ -152,6 +178,7 @@ def cli_main():
     model = MyModel(
         # dm.input_vocab_size,
         # dm.output_vocab_size,
+        args.n_layers,
         args.d_model,  # dim. in attemtion mechanism
         args.n_heads,
         # dm.padding_idx,
@@ -172,8 +199,8 @@ def cli_main():
     # ------------
     # testing
     # ------------
-    # result = trainer.test(model, datamodule=dm)
-    # print(result)
+    result = trainer.test(model, datamodule=dm)
+    print(result)
 
 
 

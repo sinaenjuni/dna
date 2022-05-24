@@ -48,6 +48,9 @@ class GeneRNADataModule(pl.LightningDataModule):
 
 
 if __name__ == "__main__":
+    gn_dataset = GeneRNADataset('~/data/dna/AXB_383_gene_default.csv')
+    gn_dataset.label.unique(return_counts=True)
+
 
     gn_data_module = GeneRNADataModule(batch_size=32, train_ratio=0.8)
     print(gn_data_module)

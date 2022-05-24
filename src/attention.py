@@ -157,3 +157,36 @@ class TransformerEncoderLayer(nn.Module):
 
         # out : [batch_size, step_size=S, d_model]
         return x, attn_scores
+
+
+import copy
+
+
+def clones(module, N):
+    "Produce N identical layers."
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
+class TransformerEncoder(nn.Module):
+    # Encoder Block - a stack of N layers
+    # Exactly same as TransformerEncoder
+    def __init__(self, num_layers, d_model, num_heads, dropout, dim_feedforward=None):
+        super(TransformerEncoder, self).__init__()
+        self.num_layers = num_layers
+        if dim_feedforward == None:
+            dim_feedforward = 4 * d_model
+        ## https://arxiv.org/pdf/1810.04805.pdf (page3)
+        a_layer = TransformerEncoderLayer(d_model, num_heads, dim_feedforward, dropout)
+
+        # prepare N sub-blocks
+        self.layers = clones(a_layer, self.num_layers)
+
+    def forward(self, x, mask=None):
+        # x expects : [B, seq_len, d_model]
+        layers_attn_scores = []
+
+        "Pass the input (and mask) through each layer in turn."
+        for layer in self.layers:
+            x, attn_scores = layer(x, mask)
+            layers_attn_scores.append(attn_scores)
+        return x, layers_attn_scores

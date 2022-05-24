@@ -9,6 +9,7 @@ pd.set_option('display.max_colwidth', None)  # or 199
 PATH = '~/data/dna/'
 RNA_DATA_PATH = os.path.join(PATH, "mirna_seq_22v_We.csv")
 GENE_DATA_PATH = os.path.join(PATH,"NEdit_mirBase_gene_distinct_list.csv")
+
 RELATION_DATA_PATH = os.path.join(PATH, "hsa_MTI.xlsx")
 DATA_PATH = os.path.join(PATH, "AXB_383_gene_default.csv")
 rna_data = pd.read_csv(RNA_DATA_PATH)
