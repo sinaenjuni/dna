@@ -10,7 +10,8 @@ from attention import TransformerEncoderLayer, TransformerEncoder
 
 from argparse import ArgumentParser
 
-
+import os
+os.environ["WANDB_AGENT_DISABLE_FLAPPING"] = "true"
 
 def data_preprocessing(miRNA_vec, Gene_vec, n_split):
     input_vec = torch.cat((miRNA_vec, Gene_vec), axis=-1)
@@ -23,8 +24,7 @@ class MyModel(pl.LightningModule):
                  n_layers,
                  d_model,  # dim. in attemtion mechanism
                  num_heads,  # number of heads
-                 learning_rate,
-                 n_split
+                 learning_rate
                  ):
         super(MyModel, self).__init__()
         self.save_hyperparameters()
@@ -59,7 +59,9 @@ class MyModel(pl.LightningModule):
         #   so, we need to prepare good shape of mask
         #   to prepare [B, dummy_for_heads, dummy_for_query, dim_for_key_dimension]
         # mask = weight[:, None, None, :]  # [B, 1, 1, max_seq_len]
-        input_vec = data_preprocessing(miRNA_vec, Gene_vec, self.hparams.n_split)
+
+        n_split = 256 // self.hparams.d_model
+        input_vec = data_preprocessing(miRNA_vec, Gene_vec, n_split)
         seq_encs, attention_scores = self.encoder(input_vec, mask=None)  # [B, max_seq_len, d_model]
 
         # seq_encs         : [B, max_seq_len, d_model]
@@ -161,7 +163,6 @@ def cli_main():
     parser.add_argument('--batch_size', default=200, type=int)
     parser.add_argument('--d_model', default=32, type=int)  # dim. for attention model
     parser.add_argument('--n_heads', default=4, type=int)  # number of multi-heads
-    parser.add_argument('--n_split', default=8, type=int)  # number of data seq
     parser.add_argument('--n_layers', default=8, type=int)  # number of encoder layer
 
     parser = pl.Trainer.add_argparse_args(parser)
@@ -188,7 +189,6 @@ def cli_main():
         args.n_heads,
         # dm.padding_idx,
         args.learning_rate,
-        args.n_split
     )
 
     # ------------
@@ -196,7 +196,7 @@ def cli_main():
     # ------------
     trainer = pl.Trainer(
         logger=wandb_logger,
-        max_epochs=100,
+        max_epochs=500,
         # callbacks=[EarlyStopping(monitor='val_loss')],
         gpus=1  # if you have gpu -- set number, otherwise zero
     )
@@ -211,4 +211,20 @@ def cli_main():
 
 
 if __name__ == '__main__':
+    # sweep_config = {
+    #     'method': 'grid',
+    #     'parameters': {
+    #         'layers': {
+    #             'values': [32, 64, 96, 128, 256]
+    #         },
+    #         'batch_size': {'values' : []},
+    #         'd_model': {'values' : []},
+    #         'n_heads': {'values' : []},
+    #         'n_layers': {'values' : []},
+    #     }
+    # }
+    #
+    # import wandb
+    # sweep_id = wandb.sweep(sweep_config)
+    # wandb.agent(sweep_id, function=cli_main)
     cli_main()
