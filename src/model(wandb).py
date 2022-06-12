@@ -5,7 +5,7 @@ from torch.optim import Adam
 import pytorch_lightning as pl
 from torchmetrics import functional as FM
 
-from gene_default_dataset import GeneRNADataModule
+from rna_gene_dataset import GeneRNADataModule, Protein2VecDataset
 from attention import TransformerEncoderLayer, TransformerEncoder
 
 from argparse import ArgumentParser
@@ -60,7 +60,7 @@ class MyModel(pl.LightningModule):
         #   to prepare [B, dummy_for_heads, dummy_for_query, dim_for_key_dimension]
         # mask = weight[:, None, None, :]  # [B, 1, 1, max_seq_len]
 
-        n_split = 256 // self.hparams.d_model
+        n_split = 128 // self.hparams.d_model
         input_vec = data_preprocessing(miRNA_vec, Gene_vec, n_split)
         seq_encs, attention_scores = self.encoder(input_vec, mask=None)  # [B, max_seq_len, d_model]
 
@@ -164,13 +164,14 @@ def cli_main():
     parser.add_argument('--d_model', default=32, type=int)  # dim. for attention model
     parser.add_argument('--n_heads', default=4, type=int)  # number of multi-heads
     parser.add_argument('--n_layers', default=8, type=int)  # number of encoder layer
+    parser.add_argument('--dataset', default=Protein2VecDataset(), type=object)
 
     parser = pl.Trainer.add_argparse_args(parser)
     parser = MyModel.add_model_specific_args(parser)
     args = parser.parse_args()
 
     from pytorch_lightning.loggers import WandbLogger
-    wandb_logger = WandbLogger(project="my-test-project")
+    wandb_logger = WandbLogger(project="dna-protein2vec")
 
     # ------------
     # data
