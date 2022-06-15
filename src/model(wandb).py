@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import wandb
 from torch.optim import Adam
 import pytorch_lightning as pl
 from torchmetrics import functional as FM
@@ -156,6 +157,12 @@ class MyModel(pl.LightningModule):
 def cli_main():
     pl.seed_everything(1234)
 
+    run = wandb.init(project="-quickstart")
+    model = wandb.Artifact('my-model', type='model')
+    model.add_file('my-model.txt')
+    run.log_artifact(model)
+
+    wandb.finish()
     # ------------
     # args
     # ------------
