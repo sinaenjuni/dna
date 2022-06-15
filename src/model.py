@@ -5,7 +5,7 @@ from torch.optim import Adam
 import pytorch_lightning as pl
 from torchmetrics import functional as FM
 
-from gene_default_dataset import GeneRNADataModule
+from rna_gene_dataset import GeneRNADataModule
 from attention import TransformerEncoderLayer, TransformerEncoder
 
 from argparse import ArgumentParser
