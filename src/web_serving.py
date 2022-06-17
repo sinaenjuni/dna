@@ -1,55 +1,103 @@
 from typing import Union
 
+import torch
+import numpy as np
+import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from model_wandb import MyModel
 from embeddings_reproduction import embedding_tools
 
 app = FastAPI()
 
-class Item(BaseModel):
-    name: str
-    price: float
-    is_offer: Union[bool, None] = None
+data_rna_protein = pd.read_csv('~/data/dna/protein/protein2vec_rna.csv')
+data_gene_protein = pd.read_csv('~/data/dna/protein/protein2vec_gene.csv')
+data_core_protein = pd.read_csv('~/data/dna/protein/protein2vec_default.csv')
 
-class Seqs(BaseModel):
-    rna_seq: list
-    gene_seq: list
+def getRnaData(name = ['hsa-miR-98-5p', 'hsa-let-7a-5p']):
+    seq = data_rna_protein[data_rna_protein['miRNA_name'].isin(name)].filter(regex='miRNA_seq').values
+    vec = data_rna_protein[data_rna_protein['miRNA_name'].isin(name)].filter(regex='rna_pro2vac_.').values
+    return seq, vec
 
-@app.get("/")
-def read_root():
-    return {"Hello": "World"}
-
-
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Union[str, None] = None):
-    return {"item_id": item_id, "q": q}
+def getGeneData(name = ['hsa-miR-98-5p', 'hsa-let-7a-5p']):
+    seq = data_gene_protein[data_gene_protein['gene_name'].isin(name)].filter(regex='gene_seq').values
+    vec = data_gene_protein[data_gene_protein['gene_name'].isin(name)].filter(regex='gene_pro2vac_.').values
+    return seq, vec
 
 
-@app.put("/items/{item_id}")
-def update_item(item_id: int, item: Item):
-    return {"item_name": item.name, "item_id": item_id}
+class Name(BaseModel):
+    name : str
+
+class PredictDF(BaseModel):
+    name : str
+    seq : str
+    vec : str
 
 
-@app.post("/seq")
-def mkSeq(seqs: Seqs):
-    rna_seq = seqs.rna_seq
-    gene_seq = seqs.gene_seq
+@app.get("/init")
+def getInit():
+    # return data_core_protein[["0_mirna","1_gene","label"]]
+    return {"rna":list(data_core_protein["0_mirna"]),
+            "gene":list(data_core_protein["1_gene"]),
+            "label":list(data_core_protein["label"])
+            }
 
-    rna_emb = embedding_tools.get_embeddings_new('original_5_7.pkl', rna_seq, k=5, overlap=False)
-    gene_emb = embedding_tools.get_embeddings_new('original_5_7.pkl', gene_seq, k=5, overlap=False)
 
-    print(rna_emb)
-    print(gene_emb)
-    return {"rna_emb": str(rna_emb), "gene_emb": str(gene_emb)}
+@app.post("/rna")
+def getRna(name : Name):
+    key = name.name
+    seq = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='miRNA_seq').values[0]
+    vec = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='rna_pro2vac_.').values[0]
+    return {"name": key,
+            "seq": str(seq),
+            "vec": str(vec)}
 
-def getRelaive(seqs: Seqs):
-    rna_seq = seqs.rna_seq
-    gene_seq = seqs.gene_seq
+@app.post("/gene")
+def getGene(name : Name):
+    print(name)
+    key = name.name
+    seq = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_seq').values[0]
+    vec = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_pro2vac_.').values[0]
+    return {"name": key,
+            "seq": str(seq),
+            "vec": str(vec)}
 
-    rna_emb = embedding_tools.get_embeddings_new('original_5_7.pkl', rna_seq, k=5, overlap=False)
-    gene_emb = embedding_tools.get_embeddings_new('original_5_7.pkl', gene_seq, k=5, overlap=False)
+@app.post("/predict")
+def getSeqVec(rna: PredictDF, gene : PredictDF):
+    rna_name, rna_seq, rna_vec = rna.name, rna.seq, rna.vec
+    gene_name, gene_seq, gene_vec = gene.name, gene.seq, gene.vec
 
-    print(rna_emb)
-    print(gene_emb)
+    print(rna_name, rna_seq, rna_vec)
+    print(gene_name, gene_seq, gene_vec)
+
+    # rna_name = rna.name
+    # rna_seq = rna
+    #
+    # gene_name = gene.name
+    #
+    #
+    # rna_vec =
+    #     gene_seq, gene_vec = getGeneData(gene_name)
+    #
+    # print(rna_vec.shape)
+    # print(gene_vec.shape)
+
+    # print(rna_seq, rna_vec)
+    # print(gene_seq, gene_vec)
+
+    # model = MyModel.load_from_checkpoint('model_weight.ckpt')
+    # model.eval()
+    # logits, _ = model(torch.from_numpy(rna_vec), torch.from_numpy(gene_vec))
+    #
+    # print(logits)
+
+    # print(type(rna_emb))
+    # print(type(gene_emb))
+    # return {"rna_seq": str(rna_seq),
+    #         "rna_vec": str(rna_vec),
+    #         "gene_seq": str(gene_seq),
+    #         "gene_vec": str(gene_vec),}
+    #         "pred": str(logits)}
+    # return rna_seq, rna_vec
 

@@ -157,12 +157,9 @@ class MyModel(pl.LightningModule):
 def cli_main():
     pl.seed_everything(1234)
 
-    run = wandb.init(project="-quickstart")
-    model = wandb.Artifact('my-model', type='model')
-    model.add_file('my-model.txt')
-    run.log_artifact(model)
+    run = wandb.init(project="dna-protein2vec")
 
-    wandb.finish()
+
     # ------------
     # args
     # ------------
@@ -199,12 +196,14 @@ def cli_main():
         args.learning_rate,
     )
 
+
+
     # ------------
     # training
     # ------------
     trainer = pl.Trainer(
         logger=wandb_logger,
-        max_epochs=500,
+        max_epochs=1,
         # callbacks=[EarlyStopping(monitor='val_loss')],
         gpus=1  # if you have gpu -- set number, otherwise zero
     )
