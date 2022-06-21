@@ -27,49 +27,56 @@ def getGeneData(name = ['hsa-miR-98-5p', 'hsa-let-7a-5p']):
 
 
 class Name(BaseModel):
-    name : str
+    name: str
 
 class PredictDF(BaseModel):
-    name : str
-    seq : str
-    vec : str
+    vec: list
 
 
-@app.get("/init")
-def getInit():
+@app.get("/data/{page}")
+def getDatas(page : int):
     # return data_core_protein[["0_mirna","1_gene","label"]]
-    return {"rna":list(data_core_protein["0_mirna"]),
-            "gene":list(data_core_protein["1_gene"]),
-            "label":list(data_core_protein["label"])
+    return {"rna":list(data_core_protein["0_mirna"][page:page+5]),
+            "gene":list(data_core_protein["1_gene"][page:page+5]),
+            "label":list(data_core_protein["label"][page:page+5])
             }
 
 
 @app.post("/rna")
 def getRna(name : Name):
+    print(name)
     key = name.name
-    seq = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='miRNA_seq').values[0]
-    vec = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='rna_pro2vac_.').values[0]
+    try:
+        seq = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='miRNA_seq').values[0]
+        vec = data_rna_protein[data_rna_protein['miRNA_name']==key].filter(regex='rna_pro2vac_.').values[0]
+    except IndexError:
+        seq = "None"
+        vec = "None"
     return {"name": key,
             "seq": str(seq),
-            "vec": str(vec)}
+            "vec": list(vec)}
 
 @app.post("/gene")
 def getGene(name : Name):
-    print(name)
     key = name.name
-    seq = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_seq').values[0]
-    vec = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_pro2vac_.').values[0]
+    try:
+        seq = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_seq').values[0]
+        vec = data_gene_protein[data_gene_protein['gene_name']==key].filter(regex='gene_pro2vac_.').values[0]
+    except IndexError:
+        seq = "None"
+        vec = "None"
+
     return {"name": key,
             "seq": str(seq),
-            "vec": str(vec)}
+            "vec": list(vec)}
 
-@app.post("/predict")
+@app.post("/pred")
 def getSeqVec(rna: PredictDF, gene : PredictDF):
-    rna_name, rna_seq, rna_vec = rna.name, rna.seq, rna.vec
-    gene_name, gene_seq, gene_vec = gene.name, gene.seq, gene.vec
+    rna_vec = np.array(rna.vec).astype(np.float32)
+    gene_vec = np.array(gene.vec).astype(np.float32)
 
-    print(rna_name, rna_seq, rna_vec)
-    print(gene_name, gene_seq, gene_vec)
+    print(rna_vec)
+    print(gene_vec)
 
     # rna_name = rna.name
     # rna_seq = rna
@@ -86,9 +93,11 @@ def getSeqVec(rna: PredictDF, gene : PredictDF):
     # print(rna_seq, rna_vec)
     # print(gene_seq, gene_vec)
 
-    # model = MyModel.load_from_checkpoint('model_weight.ckpt')
-    # model.eval()
-    # logits, _ = model(torch.from_numpy(rna_vec), torch.from_numpy(gene_vec))
+    model = MyModel.load_from_checkpoint('model_weight.ckpt')
+    model.eval()
+    logits, _ = model(torch.from_numpy(rna_vec), torch.from_numpy(gene_vec))
+    print(logits)
+    return {"logit": str(logits)}
     #
     # print(logits)
 
